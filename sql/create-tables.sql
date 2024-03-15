@@ -13,6 +13,6 @@ CREATE TABLE actors (
     name VARCHAR(100) NOT NULL,
     sex VARCHAR(10) NOT NULL,
     birthday DATE NOT NULL,
-    movies_id INT[] NOT NULL,
+    movies_id INT[],
     deleted_at DATE
 );

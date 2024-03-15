@@ -2,6 +2,7 @@ package postgresql
 
 import (
 	"database/sql"
+	"encoding/json"
 	"filmlibrary/internal/domain/models"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
@@ -42,12 +43,34 @@ func (s *Storage) Close() error {
 func (s *Storage) AddMovieStorage(movie *models.Movie) error {
 	const op = "storage.postgresql.AddMovie"
 
-	stmt, err := s.db.Prepare("INSERT INTO movies (title, description, release_date, rating, actors_id) VALUES ($1, $2, $3, $4, $5)")
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	movieInsert := sq.Insert("movies").
+		Columns("title", "description", "release_date", "rating", "actors_id").
+		Values(movie.Title, movie.Description, movie.ReleaseDate, movie.Rating, movie.ActorsID).
+		Suffix("RETURNING id")
+
+	var movieID int64
+	err = movieInsert.RunWith(tx).PlaceholderFormat(sq.Dollar).Scan(&movieID)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	_, err = stmt.Exec(&movie.Title, &movie.Description, &movie.ReleaseDate, &movie.Rating, &movie.ActorsID)
+	actorUpdate := sq.Update("actors").
+		Set("movies_id", sq.Expr("array_append(movies_id, ?)", movieID)).
+		Where(sq.Expr("id = ANY(?)", movie.ActorsID))
+
+	_, err = actorUpdate.RunWith(tx).PlaceholderFormat(sq.Dollar).Exec()
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
@@ -95,6 +118,25 @@ func (s *Storage) EditMovieStorage(movie *models.Movie) error {
 	return nil
 }
 
+func (s *Storage) DeleteMovieStorage(id int64) error {
+	const op = "storage.postgresql.DeleteMovieStorage"
+
+	query, args, err := sq.Update("movies").
+		Set("deleted_at", sq.Expr("CURRENT_TIMESTAMP")).
+		Where(sq.Eq{"id": id}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	_, err = s.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
 func (s *Storage) AddActorStorage(actor *models.Actor) error {
 	const op = "storage.postgresql.AddActor"
 
@@ -102,8 +144,6 @@ func (s *Storage) AddActorStorage(actor *models.Actor) error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
 	}
-
-	fmt.Println(actor.ID, actor.Name, actor.Sex, actor.Birthday, actor.MoviesID)
 
 	_, err = stmt.Exec(&actor.Name, &actor.Sex, &actor.Birthday, &actor.MoviesID)
 	if err != nil {
@@ -149,7 +189,57 @@ func (s *Storage) EditActorStorage(actor *models.Actor) error {
 	return nil
 }
 
-func (s *Storage) GetActor(actorName string) (*models.Actor, error) {
+func (s *Storage) GetActorsStorage() ([]*models.ActorListing, error) {
+	const op = "storage.postgresql.GetActorsStorage"
+
+	query, args, err := sq.
+		Select("a.id AS actor_id, a.name AS actor_name, a.sex AS actor_sex, a.birthday AS actor_birthday, json_agg(m.title) AS movies").
+		From("actors a").
+		LeftJoin("movies m ON a.id = ANY(m.actors_id) AND m.deleted_at IS NULL").
+		Where("a.deleted_at IS NULL").
+		GroupBy("a.id, a.name, a.sex, a.birthday").
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	var actors []*models.ActorListing
+	for rows.Next() {
+		actor := &models.ActorListing{}
+		var movies sql.NullString
+		err := rows.Scan(&actor.ID, &actor.Name, &actor.Sex, &actor.Birthday, &movies)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+		var newMovies *[]string
+		if movies.Valid {
+			if err := json.Unmarshal([]byte(movies.String), &newMovies); err != nil {
+				return nil, fmt.Errorf("%s: %w", op, err)
+			}
+			//actor.Movies = append(actor.Movies, movies.String)
+
+		}
+		actor.Movies = *newMovies
+
+		fmt.Println(actor.Movies)
+		actors = append(actors, actor)
+	}
+
+	// Check for any errors during the iteration
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return actors, nil
+}
+
+func (s *Storage) GetActorStorage(actorName string) (*models.Actor, error) {
 	const op = "storage.postgresql.GetActor"
 
 	var actor models.Actor
@@ -166,4 +256,20 @@ func (s *Storage) GetActor(actorName string) (*models.Actor, error) {
 	}
 
 	return &actor, nil
+}
+
+func (s *Storage) DeleteActorStorage(id int64) error {
+	const op = "storage.postgresql.DeleteActorStorage"
+
+	stmt, err := s.db.Prepare("UPDATE actors SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1")
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	_, err = stmt.Exec(id)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
 }
