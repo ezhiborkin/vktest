@@ -91,17 +91,8 @@ func (s *Service) EditActor(actor *models.Actor) error {
 func (s *Service) DeleteActor(id int64) error {
 	const op = "service.DeleteActor"
 
-	log := s.log.With(
-		slog.String("op", op),
-		slog.Int64("id", id),
-	)
-
-	log.Info("deleting actor")
-
 	err := s.actorStorage.DeleteActorStorage(id)
 	if err != nil {
-		s.log.Error("failed to delete an actor", sl.Err(err))
-
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -144,8 +135,6 @@ func (s *Service) GetMoviesSorted(sortBy string, sortDirection string) ([]*model
 func (s *Service) GetMovie(input string) ([]*models.MovieListing, error) {
 	const op = "service.GetMovie"
 
-	fmt.Println("service")
-
 	movies, err := s.movieStorage.GetMovieStorage(input)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
@@ -156,8 +145,6 @@ func (s *Service) GetMovie(input string) ([]*models.MovieListing, error) {
 
 func (s *Service) EditMovie(movie *models.Movie) error {
 	const op = "service.EditMovie"
-
-	fmt.Println(op)
 
 	err := s.movieStorage.EditMovieStorage(movie)
 	if err != nil {
@@ -170,17 +157,8 @@ func (s *Service) EditMovie(movie *models.Movie) error {
 func (s *Service) DeleteMovie(id int64) error {
 	const op = "service.DeleteMovie"
 
-	log := s.log.With(
-		slog.String("op", op),
-		slog.Int64("id", id),
-	)
-
-	log.Info("deleting movie")
-
 	err := s.movieStorage.DeleteMovieStorage(id)
 	if err != nil {
-		s.log.Error("failed to delete a movie", sl.Err(err))
-
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
@@ -189,13 +167,6 @@ func (s *Service) DeleteMovie(id int64) error {
 
 func (s *Service) CreateUser(email, role string, password string) error {
 	const op = "service.CreateUser"
-
-	log := s.log.With(
-		slog.String("op", op),
-		slog.String("email", email),
-	)
-
-	log.Info("creating user")
 
 	passHash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
