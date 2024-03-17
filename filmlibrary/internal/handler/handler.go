@@ -3,15 +3,20 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"filmlibrary/internal/domain/models"
+	"filmlibrary/internal/lib/logger/sl"
 	"fmt"
 	"github.com/dgrijalva/jwt-go"
+	"io"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 )
 
 type Handler struct {
+	log           *slog.Logger
 	serviceCooker ServiceCooker
 }
 
@@ -31,32 +36,32 @@ type ServiceCooker interface {
 	LoginUser(email, password string) (string, error)
 }
 
-func New(serviceCooker ServiceCooker) *Handler {
-	return &Handler{serviceCooker: serviceCooker}
+func New(log *slog.Logger, serviceCooker ServiceCooker) *Handler {
+	return &Handler{log: log, serviceCooker: serviceCooker}
 }
 
 func (h *Handler) InitRoutes() *http.ServeMux {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/edit/actor", onlyPostMiddleware(h.editActor))
-	mux.HandleFunc("/edit/movie", onlyPostMiddleware(h.editMovie))
+	mux.HandleFunc("/edit/actor", authMiddleware(onlyPostMiddleware(h.editActor)))
+	mux.HandleFunc("/edit/movie", authMiddleware(onlyPostMiddleware(h.editMovie)))
 
-	mux.HandleFunc("/create/actor", onlyPostMiddleware(h.addActor))
-	mux.HandleFunc("/create/movie", onlyPostMiddleware(h.addMovie))
+	mux.HandleFunc("/create/actor", authMiddleware(onlyPostMiddleware(h.addActor)))
+	mux.HandleFunc("/create/movie", authMiddleware(onlyPostMiddleware(h.addMovie)))
+	mux.HandleFunc("/create/user", authMiddleware(onlyPostMiddleware(h.createUser)))
 
-	mux.HandleFunc("/delete/actor", onlyDeleteMiddleware(h.deleteActor))
-	mux.HandleFunc("/delete/movie", onlyDeleteMiddleware(h.deleteMovie))
+	mux.HandleFunc("/delete/actor", authMiddleware(onlyDeleteMiddleware(h.deleteActor)))
+	mux.HandleFunc("/delete/movie", authMiddleware(onlyDeleteMiddleware(h.deleteMovie)))
 
-	mux.HandleFunc("/get/actors", authMiddleware(onlyGetMiddleware(h.getActors))) /////
+	mux.HandleFunc("/actor/add/movies", authMiddleware(onlyPostMiddleware(h.addMoviesToActor)))
+	mux.HandleFunc("/movie/add/actors", authMiddleware(onlyPostMiddleware(h.addActorsToMovie)))
+
+	mux.HandleFunc("/get/actors", onlyGetMiddleware(h.getActors))
 	mux.HandleFunc("/get/movies", onlyGetMiddleware(h.getMoviesSorted))
 
-	mux.HandleFunc("/actor/add/movies", onlyPostMiddleware(h.addMoviesToActor))
-	mux.HandleFunc("/movie/add/actors", onlyPostMiddleware(h.addActorsToMovie))
+	mux.HandleFunc("/find/movie", onlyPostMiddleware(h.getMovie)) //
 
-	mux.HandleFunc("/find/movie", onlyPostMiddleware(h.getMovie))
-
-	mux.HandleFunc("/create/user", onlyPostMiddleware(h.createUser))
-	mux.HandleFunc("/login/user", onlyPostMiddleware(h.loginUser))
+	mux.HandleFunc("/login", onlyPostMiddleware(h.loginUser))
 
 	return mux
 }
@@ -64,40 +69,55 @@ func (h *Handler) InitRoutes() *http.ServeMux {
 func (h *Handler) editActor(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.editActor"
 
-	var req models.Actor
-	err := json.NewDecoder(r.Body).Decode(&req)
+	log := h.log.With(slog.String("op", op))
+
+	actor := &models.Actor{}
+	err := json.NewDecoder(r.Body).Decode(actor)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
 	}
 
-	err = h.serviceCooker.EditActor(&req)
-	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
-	}
+	log.Info("request body decoded")
 
-	//TODO
+	err = h.serviceCooker.EditActor(actor)
+	if err != nil {
+		log.Error("failed to edit an actor", sl.Err(err))
+		http.Error(w, "failed to edit an actor", http.StatusBadRequest)
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully edited an actor"))
 }
 
 func (h *Handler) getActors(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.getActors"
 
+	log := h.log.With(slog.String("op", op))
+
 	actors, err := h.serviceCooker.GetActors()
 	if err != nil {
+		log.Error("failed to fetch actors", sl.Err(err))
 		http.Error(w, "Failed to fetch actors", http.StatusInternalServerError)
-		fmt.Printf("%s: %w", op, err)
 		return
 	}
+
+	log.Info("fetched actors")
 
 	actorJSON, err := json.Marshal(actors)
 	if err != nil {
-		http.Error(w, "Failed to marshal JSON", http.StatusInternalServerError)
-		fmt.Printf("%s: %v\n", op, err)
+		log.Error("failed to marshal JSON", sl.Err(err))
+		http.Error(w, "failed to marshal JSON", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write(actorJSON)
 }
@@ -105,46 +125,63 @@ func (h *Handler) getActors(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) deleteActor(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.deleteActor"
 
+	log := h.log.With(slog.String("op", op))
+
 	actorIDStr := r.URL.Query().Get("id")
 	actorID, err := strconv.ParseInt(actorIDStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid actor ID", http.StatusBadRequest)
+		log.Error("invalid actor ID", sl.Err(err))
+		http.Error(w, "invalid actor ID", http.StatusBadRequest)
 		return
 	}
 
+	log.Info("parsed ID")
+
 	err = h.serviceCooker.DeleteActor(actorID)
 	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to delete an actor", sl.Err(err))
+		http.Error(w, "failed to delete an actor", http.StatusBadRequest)
+		return
 	}
 
-	//TODO
-
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully deleted an actor"))
 }
 
 func (h *Handler) addActor(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.addActor"
 
-	var req models.Actor
-	err := json.NewDecoder(r.Body).Decode(&req)
+	log := h.log.With(slog.String("op", op))
+
+	actor := &models.Actor{}
+	err := json.NewDecoder(r.Body).Decode(actor)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
 	}
 
-	err = h.serviceCooker.AddActor(&req)
+	log.Info("request body decoded")
+
+	err = h.serviceCooker.AddActor(actor)
 	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to add an actor", sl.Err(err))
+		http.Error(w, "failed to add an actor", http.StatusBadRequest)
 	}
 
-	response := map[string]interface{}{
-		"kekys": 100,
-	}
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte("Successfully added an actor"))
 }
 
 func (h *Handler) addMoviesToActor(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.addMoviesToActor"
+
+	log := h.log.With(slog.String("op", op))
 
 	var req struct {
 		ActorID int64   `json:"id"`
@@ -153,44 +190,64 @@ func (h *Handler) addMoviesToActor(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
 	}
+
+	log.Info("request body decoded")
 
 	err = h.serviceCooker.AddMoviesToActor(req.ActorID, req.Movies)
 	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to add movie(s) to actor", sl.Err(err))
+		http.Error(w, "failed to add movie(s) to actor", http.StatusBadRequest)
+		return
 	}
 
-	response := map[string]interface{}{
-		"kekys": 100,
-	}
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully added movie(s) to actor"))
 }
 
 func (h *Handler) addMovie(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.addMovie"
 
-	var req models.Movie
-	err := json.NewDecoder(r.Body).Decode(&req)
+	log := h.log.With(slog.String("op", op))
+
+	movie := &models.Movie{}
+	err := json.NewDecoder(r.Body).Decode(movie)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
 	}
 
-	err = h.serviceCooker.AddMovie(&req)
+	log.Info("request body decoded")
+
+	err = h.serviceCooker.AddMovie(movie)
 	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to add a movie", sl.Err(err))
+		http.Error(w, "failed to add a movie", http.StatusBadRequest)
+		return
 	}
 
-	response := map[string]interface{}{
-		"kekys": 100,
-	}
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte("Successfully added a movie"))
 }
 
 func (h *Handler) addActorsToMovie(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.addActorsToMovie"
+
+	log := h.log.With(slog.String("op", op))
 
 	var req struct {
 		MovieID int64   `json:"id"`
@@ -199,164 +256,215 @@ func (h *Handler) addActorsToMovie(w http.ResponseWriter, r *http.Request) {
 
 	err := json.NewDecoder(r.Body).Decode(&req)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
 	}
+
+	log.Info("request body decoded")
 
 	err = h.serviceCooker.AddActorsToMovie(req.MovieID, req.Actors)
 	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to add actors to a movie", sl.Err(err))
+		http.Error(w, "failed to add actors to a movie", http.StatusBadRequest)
+		return
 	}
 
-	response := map[string]interface{}{
-		"kekys": 100,
-	}
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully added actors to a movie"))
 }
 
 func (h *Handler) getMoviesSorted(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.getMoviesSorted"
+
+	log := h.log.With(slog.String("op", op))
 
 	sortBy := r.URL.Query().Get("sortBy")
 	sortDir := r.URL.Query().Get("sortDir")
 
 	movies, err := h.serviceCooker.GetMoviesSorted(sortBy, sortDir)
 	if err != nil {
-		http.Error(w, "Failed to fetch movies", http.StatusInternalServerError)
-		fmt.Printf("%s: %w", op, err)
+		log.Error("failed to fetch movies", sl.Err(err))
+		http.Error(w, "failed to fetch movies", http.StatusBadRequest)
+		return
 	}
 
 	moviesJSON, err := json.Marshal(movies)
 	if err != nil {
-		http.Error(w, "Failed to marshal JSON", http.StatusInternalServerError)
-		fmt.Printf("%s: %v\n", op, err)
+		log.Error("failed to marshal JSON", sl.Err(err))
+		http.Error(w, "failed to marshal JSON", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Sorted by: " + sortBy + " " + sortDir))
 	w.Write(moviesJSON)
 }
 
 func (h *Handler) getMovie(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.getMovie"
 
-	input := r.URL.Query().Get("input")
+	log := h.log.With(slog.String("op", op))
 
+	input := r.URL.Query().Get("input")
 	movies, err := h.serviceCooker.GetMovie(input)
 	if err != nil {
-		http.Error(w, "Failed to find a movie", http.StatusInternalServerError)
-		fmt.Printf("%s: %w", op, err)
+		log.Error("failed to find a movie", sl.Err(err))
+		http.Error(w, "failed to find a movie", http.StatusBadRequest)
+		return
 	}
 
 	movieJSON, err := json.Marshal(movies)
 	if err != nil {
-		http.Error(w, "Failed to marshal JSON", http.StatusInternalServerError)
-		fmt.Printf("%s: %v\n", op, err)
+		log.Error("failed to marshal JSON", sl.Err(err))
+		http.Error(w, "failed to marshal JSON", http.StatusBadRequest)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-
-	if _, err := w.Write(movieJSON); err != nil {
-		fmt.Printf("%s: %v\n", op, err)
-	}
+	w.Write([]byte("Found possible movies: \n"))
+	w.Write(movieJSON)
 }
 
 func (h *Handler) editMovie(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.editActor"
 
-	var req models.Movie
-	err := json.NewDecoder(r.Body).Decode(&req)
+	log := h.log.With(slog.String("op", op))
+
+	movie := &models.Movie{}
+	err := json.NewDecoder(r.Body).Decode(movie)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
 	}
 
-	fmt.Println(req)
+	log.Info("request body decoded")
 
-	err = h.serviceCooker.EditMovie(&req)
+	err = h.serviceCooker.EditMovie(movie)
 	if err != nil {
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to edit a movie", sl.Err(err))
+		http.Error(w, "failed to edit a movie", http.StatusNotImplemented)
+		return
 	}
 
-	response := map[string]interface{}{
-		"movie": 100,
-	}
-
-	json.NewEncoder(w).Encode(response)
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully edited a movie"))
 }
 
 func (h *Handler) deleteMovie(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.deleteMovie"
 
+	log := h.log.With(slog.String("op", op))
+
 	movieIDStr := r.URL.Query().Get("id")
 	movieID, err := strconv.ParseInt(movieIDStr, 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid movie ID", http.StatusBadRequest)
+		log.Error("invalid movie ID", sl.Err(err))
+		http.Error(w, "invalid movie ID", http.StatusBadRequest)
 		return
 	}
 
+	log.Info("parsed movie ID")
+
 	err = h.serviceCooker.DeleteMovie(movieID)
 	if err != nil {
-		//log
-		http.Error(w, op, http.StatusNotImplemented)
+		log.Error("failed to delete a movie", sl.Err(err))
+		http.Error(w, "failed to delete a movie", http.StatusBadRequest)
+		return
 	}
 
-	//TODO
-
 	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Successfully deleted a movie"))
 }
 
 func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.createUser"
 
+	log := h.log.With(slog.String("op", op))
+
 	user := &models.User{}
 	err := json.NewDecoder(r.Body).Decode(user)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
+		return
+	}
+
+	log.Info("request body decoded")
+
+	if user.Email == "" {
+		h.log.Error("email is empty")
+		http.Error(w, "email is empty", http.StatusBadRequest)
+		return
+	}
+	if user.Role == "" {
+		h.log.Error("role is empty")
+		http.Error(w, "role is empty", http.StatusBadRequest)
+		return
+	}
+	if user.Password == "" {
+		h.log.Error("password is empty")
+		http.Error(w, "password is empty", http.StatusBadRequest)
 		return
 	}
 
 	err = h.serviceCooker.CreateUser(user.Email, user.Role, user.Password)
 	if err != nil {
-		http.Error(w, "Failed to create user", http.StatusInternalServerError)
-		fmt.Printf("%s: %v\n", op, err)
+		log.Error("failed to create user", sl.Err(err))
+		http.Error(w, "failed to create user", http.StatusInternalServerError)
 		return
 	}
 
-	emailResponse := "Created user with email - " + user.Email
-
-	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"message": "%s"}`, emailResponse)
+	w.Write([]byte("Created user with email - " + user.Email))
 }
 
 func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 	const op = "handler.loginUser"
 
+	log := h.log.With(slog.String("op", op))
+
 	user := &models.User{}
 	err := json.NewDecoder(r.Body).Decode(user)
 	if err != nil {
-		http.Error(w, op, http.StatusBadRequest)
+		if errors.Is(err, io.EOF) {
+			log.Error("request body is empty", sl.Err(err))
+			http.Error(w, "empty request", http.StatusBadRequest)
+			return
+		}
+		log.Error("failed to decode request body", sl.Err(err))
+		http.Error(w, "failed to decode request", http.StatusBadRequest)
 		return
 	}
 
-	fmt.Println("user email:", user.Email)
+	log.Info("request body decoded")
 
 	tokenString, err := h.serviceCooker.LoginUser(user.Email, user.Password)
 	if err != nil {
-		http.Error(w, op, http.StatusInternalServerError)
+		log.Error("failed to login user", sl.Err(err))
+		http.Error(w, "failed to login user", http.StatusBadRequest)
 		return
 	}
-	fmt.Println(tokenString)
 
-	// Set the token in the response header
 	w.Header().Set("Authorization", "Bearer "+tokenString)
-
-	// Return a success status
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("your token: " + tokenString))
+	w.Write([]byte("Successfully logged in, your token: " + tokenString))
 }
 
 func onlyGetMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -423,8 +531,7 @@ func authMiddleware(next http.Handler) http.HandlerFunc {
 				w.Write([]byte("Role claim not found or not a string"))
 				return
 			}
-			// Now you can use the role in your middleware or pass it to the context
-			fmt.Println("User role:", role)
+
 			if role != "admin" {
 				fmt.Println("Wrong role")
 				w.WriteHeader(http.StatusUnauthorized)

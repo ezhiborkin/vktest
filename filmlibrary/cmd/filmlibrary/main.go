@@ -33,6 +33,7 @@ func main() {
 		slog.String("env", cfg.Env),
 		slog.String("version", "123"),
 	)
+
 	log.Debug("debug messages are enabled")
 
 	repo, err := postgresql.New(cfg.DataSourceName)
@@ -43,7 +44,7 @@ func main() {
 
 	service := service2.New(log, repo, repo, repo)
 
-	handler := handler2.New(service)
+	handler := handler2.New(log, service)
 
 	router := handler.InitRoutes()
 

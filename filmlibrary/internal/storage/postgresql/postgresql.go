@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"filmlibrary/internal/domain/models"
+	"filmlibrary/internal/storage"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -65,7 +66,7 @@ func (s *Storage) AddMovieStorage(movie *models.Movie) error {
 	var movieID int64
 	err = movieInsert.RunWith(tx).PlaceholderFormat(sq.Dollar).Scan(&movieID)
 	if err != nil {
-		return fmt.Errorf("%s: %w", op, err)
+		return fmt.Errorf("%s: %w", op, storage.ErrMovieExists)
 	}
 
 	actorUpdate := sq.Update("actors").
@@ -223,7 +224,7 @@ func (s *Storage) EditActorStorage(actor *models.Actor) error {
 	updateBuilder := sq.Update("actors").Where(sq.Eq{"ID": &actor.ID})
 
 	if actor.Name != "" {
-		updateBuilder = updateBuilder.Set("name", "kek")
+		updateBuilder = updateBuilder.Set("name", actor.Name)
 	}
 	if actor.Sex != "" {
 		updateBuilder = updateBuilder.Set("sex", actor.Sex)
@@ -450,13 +451,10 @@ func (s *Storage) GetMovieStorage(input string) ([]*models.MovieListing, error) 
 		var movie int64
 		err := rows.Scan(&movie)
 		if err != nil {
-			fmt.Println(err, "GetMovieStorage")
 			return nil, fmt.Errorf("%s: %w", op, err)
 		}
 		moviesID = append(moviesID, movie)
 	}
-
-	fmt.Println(moviesID)
 
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
@@ -488,7 +486,6 @@ func (s *Storage) GetMovieStorageByID(id int64) (*models.MovieListing, error) {
 		GroupBy("m.id, m.title, m.description, m.release_date, m.rating").
 		PlaceholderFormat(sq.Dollar).
 		ToSql()
-
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
@@ -499,8 +496,8 @@ func (s *Storage) GetMovieStorageByID(id int64) (*models.MovieListing, error) {
 	var actors sql.NullString
 	err = row.Scan(&movie.ID, &movie.Title, &movie.Description, &movie.ReleaseDate, &movie.Rating, &actors)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("%s: movie with ID %d not found", op, id)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%s: %w", op, storage.ErrMovieNotFound)
 		}
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
@@ -555,9 +552,9 @@ func (s *Storage) GetUserStorage(email string) (*models.User, error) {
 	err = row.Scan(&user.ID, &user.Email, &user.Role, &user.Password)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, fmt.Errorf("error sql no rows")
+			return nil, fmt.Errorf("%s: %w", op, storage.ErrUserNotFound)
 		}
-		return nil, fmt.Errorf("error scanning user data: %w", err)
+		return nil, fmt.Errorf("%s: %w", op, err)
 	}
 
 	return user, nil
