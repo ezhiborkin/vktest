@@ -16,3 +16,12 @@ CREATE TABLE actors (
     movies_id INT[],
     deleted_at DATE
 );
+
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    email VARCHAR(30) UNIQUE NOT NULL,
+    role VARCHAR(10) NOT NULL,
+    password_hash VARCHAR(60) NOT NULL
+);
+
+drop table users;

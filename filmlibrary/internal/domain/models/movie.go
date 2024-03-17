@@ -11,3 +11,12 @@ type Movie struct {
 	ActorsID    []int     `json:"actors_id,omitempty"`
 	DeletedAt   time.Time `json:"deleted_at,omitempty"`
 }
+
+type MovieListing struct {
+	ID          int64     `json:"id"`
+	Title       string    `json:"title,omitempty"`
+	Description string    `json:"description,omitempty"`
+	ReleaseDate time.Time `json:"release_date,omitempty"`
+	Rating      *float64  `json:"rating,omitempty"`
+	Actors      []string  `json:"actors_id,omitempty"`
+}

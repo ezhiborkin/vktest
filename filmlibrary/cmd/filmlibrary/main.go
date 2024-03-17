@@ -41,7 +41,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := service2.New(log, repo, repo)
+	service := service2.New(log, repo, repo, repo)
 
 	handler := handler2.New(service)
 

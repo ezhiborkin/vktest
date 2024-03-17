@@ -1,2 +1,7 @@
 ./filmlibrary/.idea
 .idea
+./postgres-data
+./sql/n0.sql
+./sql/pp.sql
+./sql/yes.sql
+./sql/yes2.sql

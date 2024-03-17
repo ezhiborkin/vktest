@@ -3,11 +3,13 @@ package postgresql
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"filmlibrary/internal/domain/models"
 	"fmt"
 	sq "github.com/Masterminds/squirrel"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"math"
+	"strings"
 )
 
 type Storage struct {
@@ -78,6 +80,69 @@ func (s *Storage) AddMovieStorage(movie *models.Movie) error {
 	return nil
 }
 
+func (s *Storage) GetMoviesSortedStorage(sortBy string, sortDirection string) ([]*models.MovieListing, error) {
+	const op = "storage.postgresql.GetMoviesSorted"
+
+	sortColumn := "rating"
+
+	switch sortBy {
+	case "title":
+		sortColumn = "title"
+	case "release_date":
+		sortColumn = "release_date"
+	}
+
+	if sortDirection != "ASC" && sortDirection != "DESC" {
+		sortDirection = "DESC"
+	}
+
+	query, args, err := sq.
+		Select("m.id AS movie_id, m.title AS movie_title, m.description AS movie_description, m.release_date AS release_date, m.rating AS movie_rating, json_agg(a.name) AS actors").
+		From("movies m").
+		Join("actors a ON a.id = ANY(m.actors_id)").
+		Where("m.deleted_at IS NULL AND a.deleted_at IS NULL").
+		GroupBy("m.id, m.title, m.description, m.release_date, m.rating").
+		OrderBy(sortColumn + " " + sortDirection).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	var movies []*models.MovieListing
+	for rows.Next() {
+		movie := &models.MovieListing{}
+		var actors sql.NullString
+		err := rows.Scan(&movie.ID, &movie.Title, &movie.Description, &movie.ReleaseDate, &movie.Rating, &actors)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+		var newActors *[]string
+		if actors.Valid {
+			if err := json.Unmarshal([]byte(actors.String), &newActors); err != nil {
+				return nil, fmt.Errorf("%s: %w", op, err)
+			}
+
+		}
+
+		movie.Actors = *newActors
+
+		fmt.Println(movie.Actors)
+		movies = append(movies, movie)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	return movies, nil
+}
+
 func (s *Storage) EditMovieStorage(movie *models.Movie) error {
 	const op = "storage.postgresql.EditMovieStorage"
 
@@ -96,9 +161,9 @@ func (s *Storage) EditMovieStorage(movie *models.Movie) error {
 		roundedRating := math.Round(*movie.Rating*10) / 10
 		updateBuilder = updateBuilder.Set("rating", roundedRating)
 	}
-	if movie.ActorsID != nil && len(movie.ActorsID) > 0 {
-		updateBuilder = updateBuilder.Set("actors_id", movie.ActorsID)
-	}
+	//if movie.ActorsID != nil && len(movie.ActorsID) > 0 {
+	//	updateBuilder = updateBuilder.Set("actors_id", movie.ActorsID)
+	//}
 
 	updateBuilder = updateBuilder.PlaceholderFormat(sq.Dollar)
 
@@ -109,7 +174,6 @@ func (s *Storage) EditMovieStorage(movie *models.Movie) error {
 
 	fmt.Println(sqlStr, args)
 
-	// Execute the SQL query
 	_, err = s.db.Exec(sqlStr, args...)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
@@ -167,9 +231,9 @@ func (s *Storage) EditActorStorage(actor *models.Actor) error {
 	if !actor.Birthday.IsZero() {
 		updateBuilder = updateBuilder.Set("birthday", actor.Birthday)
 	}
-	if actor.MoviesID != nil && len(actor.MoviesID) > 0 {
-		updateBuilder = updateBuilder.Set("movies_id", actor.MoviesID)
-	}
+	//if actor.MoviesID != nil && len(actor.MoviesID) > 0 {
+	//	updateBuilder = updateBuilder.Set("movies_id", actor.MoviesID)
+	//}
 
 	updateBuilder = updateBuilder.PlaceholderFormat(sq.Dollar)
 
@@ -178,9 +242,6 @@ func (s *Storage) EditActorStorage(actor *models.Actor) error {
 		return fmt.Errorf("%s: %w", op, err)
 	}
 
-	fmt.Println(sqlStr, args)
-
-	// Execute the SQL query
 	_, err = s.db.Exec(sqlStr, args...)
 	if err != nil {
 		return fmt.Errorf("%s: %w", op, err)
@@ -222,7 +283,6 @@ func (s *Storage) GetActorsStorage() ([]*models.ActorListing, error) {
 			if err := json.Unmarshal([]byte(movies.String), &newMovies); err != nil {
 				return nil, fmt.Errorf("%s: %w", op, err)
 			}
-			//actor.Movies = append(actor.Movies, movies.String)
 
 		}
 		actor.Movies = *newMovies
@@ -231,7 +291,6 @@ func (s *Storage) GetActorsStorage() ([]*models.ActorListing, error) {
 		actors = append(actors, actor)
 	}
 
-	// Check for any errors during the iteration
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("%s: %w", op, err)
 	}
@@ -272,4 +331,234 @@ func (s *Storage) DeleteActorStorage(id int64) error {
 	}
 
 	return nil
+}
+
+func (s *Storage) AddActorsToMovieStorage(movieID int64, actors []int64) error {
+	const op = "storage.postgresql.AddActorsToMovieStorage"
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	moviessUpdate := sq.Update("movies").
+		Set("actors_id", sq.Expr("array_cat(actors_id, ?)", actors)).
+		Where(sq.Eq{"id": movieID})
+
+	_, err = moviessUpdate.RunWith(tx).PlaceholderFormat(sq.Dollar).Exec()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	for _, actorID := range actors {
+		movieUpdate := sq.Update("actors").
+			Set("movies_id", sq.Expr("array_append(movies_id, ?)", movieID)).
+			Where(sq.Eq{"id": actorID})
+
+		_, err = movieUpdate.RunWith(tx).PlaceholderFormat(sq.Dollar).Exec()
+		if err != nil {
+			return fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Storage) AddMoviesToActorStorage(actorID int64, movies []int64) error {
+	const op = "storage.postgresql.AddMoviesToActorStorage"
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	defer func() {
+		if err != nil {
+			tx.Rollback()
+		} else {
+			err = tx.Commit()
+		}
+	}()
+
+	actorsUpdate := sq.Update("actors").
+		Set("movies_id", sq.Expr("array_cat(movies_id, ?)", movies)).
+		Where(sq.Eq{"id": actorID})
+
+	_, err = actorsUpdate.RunWith(tx).PlaceholderFormat(sq.Dollar).Exec()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	for _, movieID := range movies {
+		actorUpdate := sq.Update("movies").
+			Set("actors_id", sq.Expr("array_append(actors_id, ?)", actorID)).
+			Where(sq.Eq{"id": movieID})
+
+		_, err = actorUpdate.RunWith(tx).PlaceholderFormat(sq.Dollar).Exec()
+		if err != nil {
+			return fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *Storage) GetMovieStorage(input string) ([]*models.MovieListing, error) {
+	const op = "storage.postgresql.GetMovieStorage"
+
+	inputLower := strings.ToLower(input)
+
+	//query, args, err := sq.Select("m.id AS movie_id", "m.title AS movie_title", "m.description AS movie_description", "m.release_date AS release_date", "m.rating AS movie_rating", "json_agg(a.name) AS actors").
+	//	From("movies m").
+	//	Join("actors a ON a.id = ANY(m.actors_id)").
+	//	Where(sq.Or{sq.Expr("LOWER(m.title) LIKE ?", "%"+inputLower+"%"), sq.Expr("LOWER(a.name) LIKE ?", "%"+inputLower+"%")}).
+	//	Where("m.deleted_at IS NULL AND a.deleted_at IS NULL").
+	//	GroupBy("m.id, m.title, m.description, m.release_date, m.rating").
+	//	OrderBy("m.id").
+	//	PlaceholderFormat(sq.Dollar).
+	//	ToSql()
+
+	query, args, err := sq.Select("m.id AS movie_id").
+		From("movies m").
+		Join("actors a ON a.id = ANY(m.actors_id)").
+		Where(sq.Or{sq.Expr("LOWER(m.title) LIKE ?", "%"+inputLower+"%"), sq.Expr("LOWER(a.name) LIKE ?", "%"+inputLower+"%")}).
+		Where("m.deleted_at IS NULL AND a.deleted_at IS NULL").
+		GroupBy("m.id").
+		OrderBy("m.id").
+		PlaceholderFormat(sq.Dollar).
+		ToSql()
+
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	fmt.Println(query)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+	defer rows.Close()
+
+	var moviesID []int64
+	for rows.Next() {
+		var movie int64
+		err := rows.Scan(&movie)
+		if err != nil {
+			fmt.Println(err, "GetMovieStorage")
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+		moviesID = append(moviesID, movie)
+	}
+
+	fmt.Println(moviesID)
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	var movies []*models.MovieListing
+	for _, tempMovie := range moviesID {
+		movie, err := s.GetMovieStorageByID(tempMovie)
+		if err != nil {
+			fmt.Println(err, 1)
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+
+		movies = append(movies, movie)
+	}
+
+	return movies, nil
+
+}
+
+func (s *Storage) GetMovieStorageByID(id int64) (*models.MovieListing, error) {
+	const op = "storage.postgresql.GetMovieStorage"
+
+	query, args, err := sq.
+		Select("m.id AS movie_id, m.title AS movie_title, m.description AS movie_description, m.release_date AS release_date, m.rating AS movie_rating, json_agg(a.name) AS actors").
+		From("movies m").
+		Join("actors a ON a.id = ANY(m.actors_id)").
+		Where(sq.And{sq.Eq{"m.id": id}, sq.Expr("m.deleted_at IS NULL"), sq.Expr("a.deleted_at IS NULL")}).
+		GroupBy("m.id, m.title, m.description, m.release_date, m.rating").
+		PlaceholderFormat(sq.Dollar).
+		ToSql()
+
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	row := s.db.QueryRow(query, args...)
+
+	movie := &models.MovieListing{}
+	var actors sql.NullString
+	err = row.Scan(&movie.ID, &movie.Title, &movie.Description, &movie.ReleaseDate, &movie.Rating, &actors)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("%s: movie with ID %d not found", op, id)
+		}
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	var newActors []string
+	if actors.Valid {
+		if err := json.Unmarshal([]byte(actors.String), &newActors); err != nil {
+			return nil, fmt.Errorf("%s: %w", op, err)
+		}
+	}
+
+	movie.Actors = newActors
+
+	return movie, nil
+}
+
+func (s *Storage) CreateUserStorage(email, role string, passHash []byte) error {
+	const op = "storage.postgresql.CreateUserStorage"
+
+	query, args, err := sq.Insert("users").
+		Columns("email", "role", "password_hash").
+		Values(email, role, passHash).
+		PlaceholderFormat(sq.Dollar).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	_, err = s.db.Exec(query, args...)
+	if err != nil {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+
+	return nil
+}
+
+func (s *Storage) GetUserStorage(email string) (*models.User, error) {
+	const op = "storage.postgresql.GetUserStorage"
+
+	query, args, err := sq.Select("id", "email", "role", "password_hash").
+		From("users").
+		Where(sq.Eq{"email": email}).
+		PlaceholderFormat(sq.Dollar).
+		ToSql()
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", op, err)
+	}
+
+	row := s.db.QueryRow(query, args...)
+
+	user := &models.User{}
+	err = row.Scan(&user.ID, &user.Email, &user.Role, &user.Password)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("error sql no rows")
+		}
+		return nil, fmt.Errorf("error scanning user data: %w", err)
+	}
+
+	return user, nil
 }
