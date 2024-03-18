@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"filmlibrary/internal/config"
-	handler2 "filmlibrary/internal/handler"
-	service2 "filmlibrary/internal/service"
+	handleR "filmlibrary/internal/handler"
+	servicE "filmlibrary/internal/service"
 	"filmlibrary/internal/storage/postgresql"
 	"log/slog"
 	"net/http"
@@ -13,15 +13,26 @@ import (
 	"syscall"
 )
 
-//func helloHandler(w http.ResponseWriter, r *http.Request) {
-//	fmt.Fprintf(w, "Hello, you've requested: %s\n", r.URL.Path)
-//}
-
 const (
 	envLocal = "local"
 	envDev   = "dev"
 	envProd  = "prod"
 )
+
+// @title Film Library API
+// @version 1.0
+// @description This is a test assignment for VK Internship.
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name Evgenii Zhiborkin
+// @contact.url https://t.me/zyltrcuj
+// @contact.email zhiborkin_ei@mail.ru
+
+// @host localhost:8080
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization Bearer ""
 
 func main() {
 	cfg := config.MustLoad()
@@ -42,9 +53,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	service := service2.New(log, repo, repo, repo)
+	service := servicE.New(log, repo, repo, repo)
 
-	handler := handler2.New(log, service)
+	handler := handleR.New(log, service, service, service, service)
 
 	router := handler.InitRoutes()
 

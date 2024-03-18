@@ -23,5 +23,3 @@ CREATE TABLE users (
     role VARCHAR(10) NOT NULL,
     password_hash VARCHAR(60) NOT NULL
 );
-
-drop table users;

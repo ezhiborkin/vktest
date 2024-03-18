@@ -1,0 +1,608 @@
+definitions:
+  models.ActorsTo:
+    properties:
+      actors_id:
+        example:
+        - 123
+        items:
+          type: integer
+        type: array
+      id:
+        example: 2
+        type: integer
+    required:
+    - actors_id
+    - id
+    type: object
+  models.MovieListing:
+    properties:
+      actors_id:
+        items:
+          type: string
+        type: array
+      description:
+        type: string
+      id:
+        type: integer
+      rating:
+        type: number
+      release_date:
+        type: string
+      title:
+        type: string
+    type: object
+  models.MoviesTo:
+    properties:
+      id:
+        example: 1
+        type: integer
+      movies_id:
+        example:
+        - 123
+        items:
+          type: integer
+        type: array
+    required:
+    - id
+    - movies_id
+    type: object
+  models.UserCreate:
+    properties:
+      email:
+        example: ivanov@mail.ru
+        type: string
+      password:
+        example: 123456ksksksksk
+        type: string
+      role:
+        example: admin
+        type: string
+    required:
+    - email
+    - password
+    - role
+    type: object
+  models.UserLogin:
+    properties:
+      email:
+        example: ivanov@mail.ru
+        type: string
+      password:
+        example: 123456ksksksksk
+        type: string
+    required:
+    - email
+    - password
+    type: object
+  models.addActor:
+    properties:
+      birthday:
+        example: "1952-10-07"
+        format: date
+        type: string
+      name:
+        example: Vladimir Putin
+        type: string
+      sex:
+        example: male
+        type: string
+    required:
+    - birthday
+    - name
+    - sex
+    type: object
+  models.addMovie:
+    properties:
+      actors_id:
+        items:
+          type: integer
+        type: array
+      description:
+        example: Two
+        type: string
+      rating:
+        example: 9.3
+        type: number
+      release_date:
+        example: "1994-10-14"
+        format: date
+        type: string
+      title:
+        example: The Shawshank Redemption
+        type: string
+    required:
+    - actors_id
+    - description
+    - rating
+    - release_date
+    - title
+    type: object
+  models.editActor:
+    properties:
+      birthday:
+        example: "1952-10-07"
+        format: date
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Vladimir Putin
+        type: string
+      sex:
+        example: male
+        type: string
+    required:
+    - id
+    type: object
+  models.editMovie:
+    properties:
+      description:
+        example: Two
+        type: string
+      id:
+        example: 1
+        type: integer
+      rating:
+        example: 9.3
+        type: number
+      release_date:
+        example: "1994-10-14"
+        format: date
+        type: string
+      title:
+        example: The Shawshank Redemption
+        type: string
+    required:
+    - id
+    type: object
+  models.getActor:
+    properties:
+      birthday:
+        example: "1952-10-07"
+        format: date
+        type: string
+      id:
+        example: 1
+        type: integer
+      movies:
+        example:
+        - '[''The Shawshank Redemption'''
+        - ' ''The Godfather'']'
+        items:
+          type: string
+        type: array
+      name:
+        example: Vladimir Putin
+        type: string
+      sex:
+        example: male
+        type: string
+    required:
+    - id
+    type: object
+host: localhost:8080
+info:
+  contact:
+    email: zhiborkin_ei@mail.ru
+    name: Evgenii Zhiborkin
+    url: https://t.me/zyltrcuj
+  description: This is a test assignment for VK Internship.
+  termsOfService: http://swagger.io/terms/
+  title: Film Library API
+  version: "1.0"
+paths:
+  /actor/add/movies:
+    post:
+      consumes:
+      - application/json
+      description: Adds movies to an actor based on the provided actor ID and movie
+        IDs.
+      parameters:
+      - description: Actor ID and movie IDs to be added
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.MoviesTo'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully added movie(s) to actor
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Add movies to actor
+      tags:
+      - Actors
+  /add/actor:
+    post:
+      consumes:
+      - application/json
+      description: Adds a new actor using the provided actor object.
+      parameters:
+      - description: Actor object to be added
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.addActor'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Successfully added an actor
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Add new actor
+      tags:
+      - Actors
+  /add/movie:
+    post:
+      consumes:
+      - application/json
+      description: Adds a movie using the provided movie object.
+      parameters:
+      - description: Movie object to be added
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.addMovie'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Successfully added a movie
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Add movie
+      tags:
+      - Movies
+  /create/user:
+    post:
+      consumes:
+      - application/json
+      description: Creates a new user with the provided email, role, and password.
+      parameters:
+      - description: User creation details
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.UserCreate'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully created a new user
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: User Creation
+      tags:
+      - Authentication
+  /delete/actor:
+    delete:
+      consumes:
+      - application/json
+      description: Deletes an actor by its ID.
+      parameters:
+      - description: Actor ID to be deleted
+        in: query
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully deleted an actor
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Delete actor by ID
+      tags:
+      - Actors
+  /delete/movie:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a movie by its ID.
+      parameters:
+      - description: Movie ID to be deleted
+        in: query
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully deleted a movie
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Delete movie
+      tags:
+      - Movies
+  /edit/actor:
+    post:
+      consumes:
+      - application/json
+      description: Edit actor's data.
+      parameters:
+      - description: Actor object to be edited
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.editActor'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully edited an actor
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Edit actor's data
+      tags:
+      - Actors
+  /edit/movie:
+    post:
+      consumes:
+      - application/json
+      description: Edit movie information.
+      parameters:
+      - description: Movie object to be edited
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.editMovie'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully edited a movie
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+        "501":
+          description: Not Implemented
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Edit movie
+      tags:
+      - Movies
+  /find/movie:
+    post:
+      consumes:
+      - application/json
+      description: Get movie information based on substring of a title or an actor's
+        name
+      parameters:
+      - description: Input to search for a movie
+        in: query
+        name: input
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/models.MovieListing'
+            type: array
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Get movie information
+      tags:
+      - Movies
+  /get/actors:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves a list of actors.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully fetched actors
+          schema:
+            items:
+              $ref: '#/definitions/models.getActor'
+            type: array
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Get list of actors
+      tags:
+      - Actors
+  /get/movies:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves movies sorted by the provided criteria.
+      parameters:
+      - description: Field to sort by
+        in: query
+        name: sortBy
+        type: string
+      - description: 'Sort direction: asc or desc'
+        in: query
+        name: sortDir
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Sorted movies
+          schema:
+            items:
+              $ref: '#/definitions/models.MovieListing'
+            type: array
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: Get movies sorted
+      tags:
+      - Movies
+  /login:
+    post:
+      consumes:
+      - application/json
+      description: Authenticates a user and generates an authentication token.
+      parameters:
+      - description: User credentials for login
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.UserLogin'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully logged in. Authentication token is included in
+            the 'Authorization' header
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      summary: User Login
+      tags:
+      - Authentication
+  /movie/add/actors:
+    post:
+      consumes:
+      - application/json
+      description: Adds actors to a movie based on the provided movie ID and actor
+        IDs.
+      parameters:
+      - description: Movie ID and actor IDs to be added
+        in: body
+        name: input
+        required: true
+        schema:
+          $ref: '#/definitions/models.ActorsTo'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Successfully added actor(s) to movie
+          schema:
+            type: string
+        "400":
+          description: Bad request
+          schema:
+            type: string
+        "500":
+          description: Internal server error
+          schema:
+            type: string
+      security:
+      - ApiKeyAuth: []
+      summary: Add actors to movie
+      tags:
+      - Movies
+securityDefinitions:
+  ApiKeyAuth:
+    in: header
+    name: Authorization Bearer ""
+    type: apiKey
+swagger: "2.0"
