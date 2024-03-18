@@ -2,10 +2,8 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"filmlibrary/internal/domain/models"
 	"filmlibrary/internal/lib/logger/sl"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -44,11 +42,6 @@ func (h *Handler) addMovie(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to decode request", http.StatusBadRequest)
 		return
 	}
-	if errors.Is(err, io.EOF) {
-		log.Error("request body is empty", sl.Err(err))
-		http.Error(w, "empty request", http.StatusBadRequest)
-		return
-	}
 
 	log.Info("request body decoded")
 
@@ -85,11 +78,6 @@ func (h *Handler) addActorsToMovie(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error("failed to decode request body", sl.Err(err))
 		http.Error(w, "failed to decode request", http.StatusBadRequest)
-		return
-	}
-	if errors.Is(err, io.EOF) {
-		log.Error("request body is empty", sl.Err(err))
-		http.Error(w, "empty request", http.StatusBadRequest)
 		return
 	}
 
@@ -200,11 +188,6 @@ func (h *Handler) editMovie(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error("failed to decode request body", sl.Err(err))
 		http.Error(w, "failed to decode request", http.StatusBadRequest)
-		return
-	}
-	if errors.Is(err, io.EOF) {
-		log.Error("request body is empty", sl.Err(err))
-		http.Error(w, "empty request", http.StatusBadRequest)
 		return
 	}
 

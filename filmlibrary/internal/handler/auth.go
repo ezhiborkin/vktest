@@ -42,6 +42,11 @@ func (h *Handler) loginUser(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "empty request", http.StatusBadRequest)
 		return
 	}
+	if user.Email == "" || user.Password == "" {
+		log.Error("email or password is empty", sl.Err(err))
+		http.Error(w, "email or password is empty", http.StatusBadRequest)
+		return
+	}
 
 	log.Info("request body decoded")
 

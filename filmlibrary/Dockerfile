@@ -1,5 +1,4 @@
 FROM golang:latest
-
 RUN go version
 ENV GOPATH=/
 

@@ -2,10 +2,8 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"filmlibrary/internal/domain/models"
 	"filmlibrary/internal/lib/logger/sl"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -41,11 +39,6 @@ func (h *Handler) editActor(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error("failed to decode request body", sl.Err(err))
 		http.Error(w, "failed to decode request", http.StatusBadRequest)
-		return
-	}
-	if errors.Is(err, io.EOF) {
-		log.Error("request body is empty", sl.Err(err))
-		http.Error(w, "empty request", http.StatusBadRequest)
 		return
 	}
 
@@ -155,24 +148,19 @@ func (h *Handler) addActor(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to decode request", http.StatusBadRequest)
 		return
 	}
-	if errors.Is(err, io.EOF) {
-		log.Error("request body is empty", sl.Err(err))
-		http.Error(w, "empty request", http.StatusBadRequest)
-		return
-	}
 
 	if actor.Name == "" {
-		log.Error("actor name is empty")
+		log.Error("actor name is empty", sl.Err(err))
 		http.Error(w, "actor name is empty", http.StatusBadRequest)
 		return
 	}
 	if actor.Sex == "" {
-		log.Error("actor sex is empty")
+		log.Error("actor sex is empty", sl.Err(err))
 		http.Error(w, "actor sex is empty", http.StatusBadRequest)
 		return
 	}
 	if actor.Birthday.IsZero() {
-		log.Error("actor birthday is empty")
+		log.Error("actor birthday is empty", sl.Err(err))
 		http.Error(w, "actor birthday is empty", http.StatusBadRequest)
 		return
 	}
@@ -211,11 +199,6 @@ func (h *Handler) addMoviesToActor(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Error("failed to decode request body", sl.Err(err))
 		http.Error(w, "failed to decode request", http.StatusBadRequest)
-		return
-	}
-	if errors.Is(err, io.EOF) {
-		log.Error("request body is empty", sl.Err(err))
-		http.Error(w, "empty request", http.StatusBadRequest)
 		return
 	}
 
